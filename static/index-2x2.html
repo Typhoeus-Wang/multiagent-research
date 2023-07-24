@@ -1,0 +1,567 @@
+<html>
+  <head>
+    <title>Quadgame 2x2</title>
+    <script src="https://www.unpkg.com/mathjs@11.1.0/lib/browser/math.js" type="text/javascript"></script>
+    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js" type="text/javascript"></script>
+
+    <style>
+
+
+      svg {
+        display: flex;
+        margin-left: auto;
+        margin-right: auto;
+        align-items: center;
+        height: 50%;
+      }
+
+      div {
+        text-align: center;
+      }
+
+      .circle{
+        position:absolute;
+        transform:translate(-50%, -50%);
+        height:10px;
+        width:10px;
+        border-radius:50%;
+        border:2px solid black;
+      }
+
+      /* .centered{
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100%;
+      width: 100%;
+      } */
+
+      .centered {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+      }
+
+      .instr_header {
+        position: fixed;
+        top: 20%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 150%;
+      }
+
+      .instr_detail {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        text-align: left;
+        font-size: 150%;
+      }
+
+      .ending_detail {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 130%;
+      }
+
+      rect {
+        fill: black;
+        transform: rotate(180deg);
+        transform-origin: center center;
+      }
+
+      .square {
+        height: 50%;
+        width: 50%;
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        border-style: solid;
+        border-width: thick;
+        border-color: black;
+      }
+
+    </style>
+  </head>
+  <body>
+
+    <div id="circle" class="circle"></div>
+
+    <div id="instruction">
+      <div class="instr_header">
+        <h1>
+          Welcome to the human-machine collaboration game!
+        </h1>
+        <p>Click to begin trials</p>
+        <i>(Please run study with your window in full-screen)</i>
+      </div>
+
+      <div class="instr_detail">
+        <p>
+          <strong>Objective: </strong>Use your mouse to move the circle cursor around the game screen (up/down & left/right). Try to make the black bar as small as possible.
+        </p>
+
+        <p>
+          25 seconds per trial
+        </p>
+
+        <p>
+          20 trials in total
+        </p>
+
+        <p>
+          <strong>Estimated Completion Time: </strong>10 minutes
+        </p>
+      </div>
+    </div>
+
+    <div id="game-view" class="square" hidden>
+
+      <svg width="100" height="100">
+        <rect y="" width="100" height="100" id="output"/>
+      </svg>
+
+      <div id="start">
+      </div>
+
+      <!--
+      <div id="cost">
+      </div>
+      
+      <div id="statusx1">
+      </div>
+
+      <div id="statusx2">
+      </div>
+
+      <div id="statusy1">
+      </div>
+
+      <div id="statusy2">
+      </div>
+      -->
+
+    </div>
+    
+
+    <div id="ending-screen" hidden>
+      <div class="instr_header"><h1> Thank you for completing the study! </h1></div>
+      <div class="ending_detail">
+        <h2> Use the reward code below to claim the compensation </h2>
+        <p> <strong> Reward Code: </strong> C99VZ3UD</p>
+      </div>
+    </div>
+
+
+    <script>
+
+      study = {
+	      'sid': 'ABCDEF',
+        'repeat': 1,
+        'tasks': [
+          {
+           'lr': -1,
+          },
+          {
+           'lr': 0,
+          },
+          {
+           'lr':0.3,
+          },
+          {
+           'lr':0.03,
+          },
+          {
+            'lr':0.003
+          }
+        ]
+      }
+
+      P = {
+	      "duration": 25, // seconds
+        "fps": 40,
+        "n1": 2,
+        "n2": 2,
+        "A1": [[1,0],
+  			      [0,1]],
+        "B1": [[-0.5639, -0.5639],
+       	      [0.3880, 0.3880]],
+        "D1": [[0.2313, 0.1908],
+       	      [0.2003, 0.2150]],
+        "b1": [0,0],
+        "d1": [0,0],
+        "A2": [[1,0],
+              [0,1]],
+        "B2": [[-0.4420, -0.5975],
+       	      [-0.5542,-0.0861]],
+        "D2": [[2.9288,1.9990],
+       	      [2.6210,1.2706]],
+        "b2": [1, 1],
+        "d2": [1, 1],
+        "L": [[0,0],
+            [0,0]],
+        "flipx1": 1,
+        "flipx2": 1,
+        "cshift": 0,
+        "cscale": 1,
+        "lr": 0.003,
+        "nash": [-1.25,-1.17]
+      }
+
+      t = 0;
+      mouse_x = 0;
+      mouse_y = 0;
+      h = math.matrix([0.1,0.1]);
+      m = math.matrix([0,0]);
+      cost = 0;
+      tasknumber = 1;
+      taskslist = [];
+      executed = false;
+
+      col = ['t','h1','h2','m1','m2','f1','lr']
+      data = [col]
+
+      let searchParams = (new URL(document.location)).searchParams;
+      const pid = searchParams.get('pid') || 'guest';
+
+      //Human player cost function
+      //f1 = (1/2)h^T A1 h + h^T B1^T m + (1/2)m^T D1 m + h^T b1 + m^T d1
+      function f1(h,m,A1,B1,D1,b1,d1) {
+	      return math.add(
+          math.add(
+            math.add(
+              math.add(
+                math.add(
+                  math.divide(
+                    math.multiply(
+                      h,
+                      A1,
+                      math.transpose(h)
+                    ),
+                    2
+                  ),
+                  math.multiply(
+                    h,
+                    math.transpose(B1),
+                    math.transpose(m)
+                  )
+                ),
+                math.divide(
+                  math.multiply(
+                    m,
+                    D1,
+                    math.transpose(m)
+                  ),
+                  2
+                )
+              ),
+              math.multiply(
+                h,
+                b1
+              )
+            ),
+            math.multiply(
+              m,
+              d1
+            )
+          ),
+          0
+        )
+      }
+
+      //Machine player best response function
+      //BR2 = ((A2 + L1 B2^T)^-1(-((B2^T + L1 D2) h^T + b2 + L1 d2)))^T = m
+      function r2(h,L,A2,B2,D2,b2,d2) {
+	      return math.transpose(
+          math.multiply(
+            math.inv(
+              math.add(A2,math.multiply(L,math.transpose(B2)))
+            ),
+            math.multiply(-1,
+              math.add(
+                math.add(
+                  math.multiply(
+                    math.add(math.transpose(B2),math.multiply(L,D2)),
+                    math.transpose(h)
+                  ),
+                  b2
+                ),
+                math.multiply(L,d2)
+              )
+            )
+          ) 
+        )     
+      }
+
+      //Machine player gradient function
+      //g2 = (A2)m^T + (B2^T)h^T + b2
+      function g2(h,m,A2,B2,D2,b2) {
+	      return math.add(
+          math.add(
+            math.multiply(
+              A2,
+              math.transpose(m)
+            ),
+            math.multiply(
+              math.transpose(B2),
+              math.transpose(h)
+            )
+          ),
+          b2
+        )
+      }
+
+      //Machine's move will either play its best response or play gradient descent
+      function step(h,m,P) {
+        console.log(P.lr)
+        if (P.lr == -1) {
+  	      return r2(h,P.L,P.A2,P.B2,P.D2,P.b2,P.d2)
+        }
+        if (P.lr == 0) {
+  	      return math.matrix([P.nash[0],P.nash[1]])
+        }
+        if (P.lr > 0) {
+  	      return math.add(m, math.multiply(-P.lr,g2(h,m,P.A2,P.B2,P.D2,P.b2)));
+        }
+      }
+
+      //set new params then run game
+      function startTask(params) {
+          running = false
+          document.getElementById("start").innerHTML = 'Click the mouse to begin task ' + tasknumber;
+
+          Object.assign(P, params)
+          tick()
+      }
+
+      //running of game
+      var running;
+      function tick(){
+	      h = math.matrix([2*P.flipx1*mouse_x/newbordersize,
+                        2*P.flipx2*mouse_y/newbordersize]);
+	      if(running) {
+  	      if (t==0) document.getElementById("start").innerHTML = '';
+          t += 1;
+          mp = step(h,m,P);
+          m = mp;
+          cost = f1(h,m,P.A1,P.B1,P.D1,P.b1,P.d1)+P.cshift;
+          output.setAttribute('height',((math.exp(cost*2)-1)) + 'cm')
+
+          //document.getElementById("cost").innerHTML = 'cost = '+((math.exp(cost*100)-2)).toFixed(4);
+          //document.getElementById("cost").innerHTML = 'cost = '+((math.exp(cost*2)-1)).toFixed(4);
+
+
+          hh1 = parseFloat(h.subset(math.index(0)));
+          hh2 = parseFloat(h.subset(math.index(1)));
+          mm1 = parseFloat(m.subset(math.index(0)));
+          mm2 = parseFloat(m.subset(math.index(1)));
+          data.push([t, hh1, hh2, mm1, mm2, cost, P.lr])
+          //console.log(t, hh1, hh2, mm1, mm2, cost, P.lr);
+        } else {
+        
+        }
+
+        //displaying values
+        //document.getElementById("statusx1").innerHTML = 'h1 = '+h.subset(math.index(0)).toFixed(4);
+        //document.getElementById("statusx2").innerHTML = 'h2 = '+h.subset(math.index(1)).toFixed(4);
+        //document.getElementById("statusy1").innerHTML = 'm1 = '+m.subset(math.index(0)).toFixed(4);
+        //document.getElementById("statusy2").innerHTML = 'm2 = '+m.subset(math.index(1)).toFixed(4);
+
+
+        if (t >= P.duration*P.fps) {
+  	      console.log('done')
+          //console.log(data)
+
+
+          //UNCOMMENT TO HAVE FILES SAVE ON COMPUTER
+
+          // var blob = new Blob([JSON.stringify(data)], {type: "text/plain;charset=utf-8"});
+	        // saveAs(blob, "data2x2-"+ P.lr + "-" + P.flipx1 + P.flipx2 + ".json");
+
+
+          //UNCOMMENT TO UPLOAD TO DATABASE
+          /*
+          console.log('Uploading to database')
+          payload = {
+            "pid": pid,
+            "tid": 0,
+            "sid": "sid_test",
+            "protocol": "protocol_test",
+            "params": P,
+            "data": data
+          }
+          fetch("/upload/", {
+            method: 'POST',
+            headers: {
+              'accept': 'application/json',
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+          })
+          .then( (res) => {
+            console.log(res)
+          });
+          */
+
+          let urlParams = new URLSearchParams(window.location.search);
+          let pid = urlParams.get('pid');
+
+          console.log('Uploading to database')
+          payload = {
+            "id": Math.floor(Math.random() * 1000000000),        // TODO: fix the hardcode
+            "kind": 1000,
+            "tags": JSON.stringify([["data2x2"],["lr",P.lr],["flipx1",P.flipx1],["flipx2",P.flipx2]]),
+            "pubkey": pid ? pid : "default",                               // participant id
+            "created_at": Math.floor(Date.now() / 1000), //Date.now() / 1000,             // unix time
+            "content": JSON.stringify(data)              // json data
+          }
+          //console.log(payload);
+          fetch("/events", {
+            method: 'POST',
+            headers: {
+              'accept': 'application/json',
+              'Content-Type': 'application/json',
+              'mode':'cors'
+            },
+            body: JSON.stringify(payload)
+          })
+          .then( (res) => {
+            console.log(res)
+          });
+
+
+          data = [col]
+          //move to next task
+          t=0;
+          tasknumber++;
+          if (tasknumber<=taskslist.length){
+    	      console.log(tasknumber)
+  	    	  startTask({"lr":taskslist[tasknumber-1][0],"flipx1":taskslist[tasknumber-1][1], "flipx2":taskslist[tasknumber-1][2]})
+  	      } else {
+            // ending screen + reward code
+            document.getElementById("game-view").hidden = true;
+            document.getElementById("ending-screen").hidden = false;
+          }
+          } else {
+            setTimeout(tick,1000/P.fps)
+          }
+
+      }
+
+      function run() {
+        //creating the task loop
+        if(!executed){
+          console.log('Making task list')
+          lrlist = [] //list of learning rates
+  	      flips = [[1,1],[1,-1],[-1,1],[-1,-1]] //all types of flips
+  	      holder = [0,1,1] //dummy variable for creating list of lists
+
+          //create list of learning rates from study JSON and store in lrlist
+  	      for (let i = 0; i < study.tasks.length;i++){
+  		      lrlist.push(study.tasks[i].lr)
+  	      }
+
+          //repeat list based on study repeat number
+          for(let re=0; re<study.repeat;re++){
+
+            //create list of tasks stored in taskslist as list of [learning rate, flipx1, flipx2]
+  	        for (let i1 = 0; i1 < lrlist.length;i1++){
+  		        for (let i2 = 0; i2 < flips.length;i2++){
+    		        holder[0] = lrlist[i1]
+      	        holder[1] = flips[i2][0]
+      	        holder[2] = flips[i2][1]
+  			        taskslist.push([holder[0],holder[1],holder[2]])
+  		        }
+  	        }
+          }
+          //set executed as true so that the creation of the task list does not run again
+  	      executed = true;
+
+          //randomize the task list
+          shuffle(taskslist)
+
+          //run the first task in the task list
+          console.log('taskslist length is ' + taskslist.length)
+          console.log('Running task: ' + tasknumber)
+          document.getElementById("start").innerHTML = '';
+          startTask({"lr":taskslist[tasknumber-1][0],"flipx1":taskslist[tasknumber-1][1], "flipx2":taskslist[tasknumber-1][2]})
+        }
+      }
+
+
+      let circle = document.getElementById('circle');
+
+      function mousemove(event) {
+        if (event.pageX > xlborder && event.pageX < xrborder){
+          circle.style.left = event.pageX + 'px';
+        } else{
+          if (event.pageX < xlborder){
+            circle.style.left = xlborder + 'px';
+          }else{
+            circle.style.left = xrborder + 'px';
+          }
+        }
+        if (event.pageY > ytborder && event.pageY < ybborder){
+          circle.style.top = event.pageY + 'px';
+        } else{
+          if (event.pageY < ytborder){
+            circle.style.top = ytborder + 'px';
+          }else{
+            circle.style.top = ybborder + 'px';
+          }
+        }
+
+        mouse_x = parseFloat(circle.style.left.replace('px','')) - (parseFloat(document.getElementById('game-view').style.height.replace('px',''))/2) - xlborder;
+        mouse_y = -(parseFloat(circle.style.top.replace('px','')) - (parseFloat(document.getElementById('game-view').style.height.replace('px',''))/2) - ytborder);
+      }
+
+      let xlborder;
+      let xrborder;
+      let ytborder;
+      let ybborder;
+      let newbordersize;
+
+      function rewindow(event) {
+        newbordersize = Math.min(window.innerWidth,window.innerHeight) * 0.95;
+        document.getElementById('game-view').style.height = newbordersize + 'px';
+        document.getElementById('game-view').style.width = newbordersize + 'px';
+        xlborder = (window.innerWidth - newbordersize)/2;
+        xrborder = window.innerWidth - xlborder;
+        ytborder = (window.innerHeight - newbordersize)/2;
+        ybborder = window.innerHeight - ytborder;
+      }
+
+      function shuffle(array){
+        array.sort(() => Math.random() - 0.5);
+      }
+
+      document.body.onkeyup = function(e){
+        if(e.keyCode == 32){
+          space = true;
+        }
+      }
+
+      addEventListener('resize', rewindow)
+      addEventListener('mousemove', mousemove)
+      var first_click = true;
+      addEventListener("click", function () {
+        if(!first_click){
+        running = true;
+        }else{
+          first_click = false;
+          rewindow()
+          document.getElementById("instruction").hidden = true;
+          document.getElementById("game-view").hidden = false;
+          
+        }
+      });
+      run()
+
+    </script>
+  </body>
+</html>
